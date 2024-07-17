@@ -1,0 +1,186 @@
+###### installing redis on mac
+brew install redis
+
+###### starting redis server
+redis-server
+
+###### starting redis cli to interact with server
+redis-cli
+
+###### CLI terminal
+
+command docs - https://redis.io/commands/
+
+###### Data Types
+
+## String
+// redis doesn't deal with numbers (everything is string)
+// but incr/incrby or decr/decrby works as if it is integer
+set counter 0
+get counter
+incr counter
+decr counter
+incrby counter 4
+decrby counter 2
+get counter
+
+# strlen
+set mykey "this is a string"
+strlen mykey
+
+# append
+set mykey "this is a string of"
+append mykey " test"
+get mykey
+
+# getrange
+
+## Set 
+// atomic - success or fail 
+// key : value 
+set name "ram prasad pangeni"
+set city bangalore
+set state_country "karnataka, india"
+
+## Get
+get name
+get city
+get state_country
+
+## Hashmap
+// hashmaps are optimized - 4 billion entries per map 
+
+// logged user example => here loggedUser:123 is equivalent to table loggerUser and user-id 123 in SQL.
+hset loggedUser:123 name "Ram Prasad Pangeni" avatarUrl "https://avatars.dicebear.com/api/big-smile/ram.svg" role "Developer"
+hget loggedUser:123 name
+hmget loggedUser:123 name avatarUrl role
+hmget loggedUser:123 name role
+
+// shopping card example - since we cannot store list inside hashmap, we use concat logic to represent complex data structures
+hset cart:123 prod:1:name "Oranges" prod:1:price "2,23" prod:1:amount "1" prod:2:name "Apples" prod:2:price "3,40" prod:2:amount "4"
+hincrby cart:123 prod:1:amount 3
+hgetall cart:123
+
+## List
+// represented using - doubly linked list
+// therefore insertion/deletion is possible anywhere
+// first and last position operation O(1)
+// middle position operation O(n)
+// pop and push element from either end possible 
+lpush mylist "first element" "second element" "final element"
+lpop mylist
+rpush mylist "final element"
+rpop mylist
+lpop mylist 3
+
+# how to build queue using list in redis
+FIFO queue - rpush to add data from the end ... lpop to read data from the start
+LIFO queue - lpush to add data from the end ... lpop to read data from the start
+
+# inspect the queue without effecting it
+lpush mylist "first element" "second element" "final element"
+lrange mylist 0 2
+lrange mylist 0 -1 // without knowing how many elements are there, print all
+
+# insert in the middle - after or before certain value (NOTE: doesn't work with index)
+// NOTE: since list can have duplicate element, insert will happen before or after the 1st occourances of that value
+linsert mylist after "second element" "third element"
+lrange mylist 0 -1
+
+# get the first element of list
+lrange mylist 0 0
+
+# get the last element of list
+lrange mylist -1 -1
+
+# sets - since list can have duplicate content, we can use sets instead.
+// sadd - add elements only at the end
+// spop - randomly pop element from the set
+// srem - to remove the element from the set
+// NOT ORDERED
+// order of insertion doesn't matter - use sorted sets instead
+sadd myset "first element" "second element" "third element" "final element"
+smembers myset
+srem myset "third element"
+
+## Sorted Set
+// just like set, but are sorted. Along with string, integer value also added to sort the elements.
+// use case - priority queue, leaderboard, task scheduling 
+# building leaderboard - a list of players sorted by their points
+zadd leaderboard 304 "Doris Ramirez" 
+zadd leaderboard 1000 "Sandra Ortiz"
+zadd leaderboard 860 "Nicholas Clark" 
+zadd leaderboard 600 "Cheryl Robinson" 
+zadd leaderboard 100 "Brian Mcdonald"
+zrange leaderboard 0 5
+zrevrange leaderboard 0 5
+zrevrange leaderboard 0 -1
+zincrby leaderboard 300 "Nicholas Clark"
+zrevrange leaderboard 0 -1 
+
+
+###### pub/sub in redis
+client-1> subscribe notifications
+client-2> publish notifications "this is my first example redis message"
+
+###### streams in redis
+// example => log file
+// - add log lines to the end of log file
+// - have time stamp per line, to easily find logs within a range of time
+// - use the linux tail command to wait for new logs to appear
+// - do not remove log lines from the file
+
+NOTE:: streams -
+ - append only data type
+ - everything gets persisted
+ - multiple ways to query the data
+
+xadd <key> <value> [<key> <value> ...]
+ - the first <key> is the name of the key where you stored the stream
+ - the first <value> is the ID of the data you're entering into the stream; you'll usually use the "*" here
+ - the [<key> <value>...] is the data you can enter into a stream; you're not just adding strings here
+xadd myevents * user "ram pangeni" event_type "left-click" coord_x 32 coord_y 40 
+xadd myevents * user "ram pangeni" event_type "right-click" coord_x 53 coord_y 56
+xadd myevents * user "ram pangeni" event_type "scroll"
+
+// reading data from streams - using timestamp - xrange
+// the IDs are Unix time stamps; can use xrange command and specify the starting and ending time stamps
+// - xrange <key> <starting id> <ending id>
+// <starting id> and <ending id> can be used as - and + as wild card to list full list
+xrange myevents - + 
+xrevrange myevents + - count 1
+
+// read data in real-time, i.e. get notified when element is added 
+// - xread [count x] [block y] streams <key...> <id...>
+client-1> xread block 0 streams myevents $
+client-2> xadd myevents * user "ram pangeni" event_type "scroll"
+
+client-1> subscribe mybus
+client-2> subscribe mybus
+client-3> publish mybus "this message"
+
+###### keyspace notifications
+// the producer is redis itself
+// you can get notified when data enters and leaves redis even when it gets notified
+// use case - session timeout for web application using redis
+// 1. sing-in status :: on every request, we'll check if the user is signed in.
+// 2. valid check :: if they are signed in, we'll check if the session is still valid (hasn't expired yet).
+// 3. sign-out :: once the session expires, we need to sign out the user.
+
+NOTE: Use EX and XX flag with SET command
+ - EX => set logged_in_users_1234 1659499460 ex 3600
+      - the EX flag sets a time to live for the key
+      - when it expires, redis removes the key
+      - and it triggers a keyspace notification
+ - XX => set logged_in_users_1234 1659499460 ex 3600 xx
+      - the XX flag prevents from updating a key that's not there
+      - it saves one query to check if the key exists or not
+     - cleaner and easier-to-read code
+
+client-1> set logged_in_users_1234 1659499460 ex 3600
+client-1> set logged_in_users_1234 1659499473 ex 3600 xx
+
+bash-$> redis-cli --csv psubscribe '__key*__:expired'
+client-1> set logged_in_users_1234 1659499460 ex 5
+
+
